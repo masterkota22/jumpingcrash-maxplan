@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
@@ -34,8 +34,13 @@ export default function MeasurePage() {
   const [timeLeft, setTimeLeft] = useState(DURATION);
   const [saving, setSaving] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
-  const [award, setAward] = useState<AwardGrade>('none');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const award = useMemo<AwardGrade>(() => {
+    if (phase !== 'done') return 'none';
+    const ageGroup = profile ? getAgeGroup(profile.schoolLevel, profile.grade) : null;
+    return ageGroup ? judgeAward(eventType, ageGroup, count) : 'none';
+  }, [phase, profile, eventType, count]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -44,30 +49,26 @@ export default function MeasurePage() {
     }
   }, []);
 
+  const finishMeasure = useCallback(() => {
+    stopTimer();
+    setPhase('done');
+    setResultOpen(true);
+  }, [stopTimer]);
+
   const startMeasure = () => {
     setCount(0);
     setTimeLeft(DURATION);
     setPhase('measuring');
+    const startTime = Date.now();
     timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          stopTimer();
-          setPhase('done');
-          return 0;
-        }
-        return prev - 1;
-      });
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, DURATION - elapsed);
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        finishMeasure();
+      }
     }, 1000);
   };
-
-  useEffect(() => {
-    if (phase === 'done') {
-      const ageGroup = profile ? getAgeGroup(profile.schoolLevel, profile.grade) : null;
-      const a = ageGroup ? judgeAward(eventType, ageGroup, count) : 'none';
-      setAward(a);
-      setResultOpen(true);
-    }
-  }, [phase, profile, eventType, count]);
 
   useEffect(() => () => stopTimer(), [stopTimer]);
 
@@ -192,10 +193,7 @@ export default function MeasurePage() {
             variant="outlined"
             color="error"
             sx={{ mt: 3 }}
-            onClick={() => {
-              stopTimer();
-              setPhase('done');
-            }}
+            onClick={finishMeasure}
           >
             중단
           </Button>

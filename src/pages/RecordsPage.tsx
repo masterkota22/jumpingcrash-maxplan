@@ -24,16 +24,13 @@ export default function RecordsPage() {
   const { firebaseUser, profile } = useAuth();
   const [records, setRecords] = useState<JumpRecord[]>([]);
   const [tab, setTab] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!firebaseUser);
 
   useEffect(() => {
     if (firebaseUser) {
-      setLoading(true);
       getUserRecords(firebaseUser.uid)
         .then(setRecords)
         .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
     }
   }, [firebaseUser]);
 

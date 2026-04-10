@@ -26,11 +26,13 @@ export default function SchoolRankingPage() {
   const selectedEvent = EVENTS[tab];
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
     computeSchoolRankings(selectedEvent).then((data) => {
+      if (cancelled) return;
       setRankings(data);
       setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [selectedEvent]);
 
   const getMedalColor = (rank: number) => {
@@ -52,7 +54,7 @@ export default function SchoolRankingPage() {
         각 학교 상위 3명의 평균 기록으로 순위를 매깁니다.
       </Typography>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth" sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={(_, v) => { setTab(v); setLoading(true); }} variant="fullWidth" sx={{ mb: 2 }}>
         {EVENTS.map((evt) => (
           <Tab key={evt} label={EVENT_LABELS[evt]} />
         ))}

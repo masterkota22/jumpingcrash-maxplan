@@ -28,8 +28,9 @@ export default function RankingPage() {
   const selectedEvent = EVENTS[tab];
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
     getRecordsByEvent(selectedEvent).then((records) => {
+      if (cancelled) return;
       // Best record per user
       const best = new Map<string, JumpRecord>();
       for (const r of records) {
@@ -44,6 +45,7 @@ export default function RankingPage() {
       setRankings(sorted);
       setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [selectedEvent]);
 
   const getMedalEmoji = (rank: number) => {
@@ -57,7 +59,7 @@ export default function RankingPage() {
     <Container maxWidth="sm" sx={{ py: 3 }}>
       <Typography variant="h5" gutterBottom>개인 전체 순위</Typography>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth" sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={(_, v) => { setTab(v); setLoading(true); }} variant="fullWidth" sx={{ mb: 2 }}>
         {EVENTS.map((evt) => (
           <Tab key={evt} label={EVENT_LABELS[evt]} />
         ))}

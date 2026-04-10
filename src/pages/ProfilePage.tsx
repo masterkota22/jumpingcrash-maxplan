@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
@@ -30,8 +30,11 @@ export default function ProfilePage() {
   const [classNumber, setClassNumber] = useState('');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [prevProfile, setPrevProfile] = useState(profile);
 
-  useEffect(() => {
+  // Sync form fields when profile loads or changes (render-time state adjustment)
+  if (profile !== prevProfile) {
+    setPrevProfile(profile);
     if (profile) {
       setName(profile.name);
       setSchoolId(profile.schoolId);
@@ -39,7 +42,7 @@ export default function ProfilePage() {
       setGrade(profile.grade);
       setClassNumber(profile.classNumber?.toString() ?? '');
     }
-  }, [profile]);
+  }
 
   if (!firebaseUser) {
     return (
