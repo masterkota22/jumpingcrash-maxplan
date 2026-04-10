@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
@@ -9,9 +9,14 @@ import MenuItem from '@mui/material/MenuItem';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
 import Paper from '@mui/material/Paper';
+import Autocomplete from '@mui/material/Autocomplete';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
 import { useAuth } from '@/contexts/AuthContext';
-import { updateUser } from '@/services/firestore';
-import type { SchoolLevel } from '@/types';
+import { updateUser, getAllSchools, createSchool } from '@/services/firestore';
+import type { School, SchoolLevel } from '@/types';
 
 const SCHOOL_LEVELS: { value: SchoolLevel; label: string }[] = [
   { value: 'elementary', label: '초등학교' },
@@ -24,50 +29,103 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const { firebaseUser, profile, signOut, refreshProfile } = useAuth();
   const [name, setName] = useState('');
-  const [schoolId, setSchoolId] = useState('');
   const [schoolLevel, setSchoolLevel] = useState<SchoolLevel>('elementary');
   const [grade, setGrade] = useState(1);
   const [classNumber, setClassNumber] = useState('');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [prevProfile, setPrevProfile] = useState(profile);
+  const [error, setError] = useState('');
 
-  // Sync form fields when profile loads or changes (render-time state adjustment)
+  // School search
+  const [schools, setSchools] = useState<School[]>([]);
+  const [selectedSchool, setSelectedSchool] = useState<School | null>(null);
+  const [schoolsLoading, setSchoolsLoading] = useState(true);
+
+  // New school dialog
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newSchoolName, setNewSchoolName] = useState('');
+  const [newSchoolLevel, setNewSchoolLevel] = useState<SchoolLevel>('elementary');
+  const [newSchoolRegion, setNewSchoolRegion] = useState('');
+  const [dialogSaving, setDialogSaving] = useState(false);
+
+  // Load schools list
+  useEffect(() => {
+    getAllSchools()
+      .then(setSchools)
+      .catch(() => setError('학교 목록을 불러오는데 실패했습니다.'))
+      .finally(() => setSchoolsLoading(false));
+  }, []);
+
+  // Sync form with profile
+  const [prevProfile, setPrevProfile] = useState(profile);
   if (profile !== prevProfile) {
     setPrevProfile(profile);
     if (profile) {
       setName(profile.name);
-      setSchoolId(profile.schoolId);
       setSchoolLevel(profile.schoolLevel);
       setGrade(profile.grade);
       setClassNumber(profile.classNumber?.toString() ?? '');
+      // Match selected school
+      const matched = schools.find((s) => s.id === profile.schoolId);
+      if (matched) setSelectedSchool(matched);
     }
   }
 
-  if (!firebaseUser) {
-    return (
-      <Container maxWidth="sm" sx={{ py: 3 }}>
-        <Alert severity="info">프로필을 보려면 로그인해주세요.</Alert>
-        <Button variant="contained" onClick={() => navigate('/login')} sx={{ mt: 2 }}>
-          로그인
-        </Button>
-      </Container>
-    );
-  }
+  // Also match school once schools are loaded
+  useEffect(() => {
+    if (profile && schools.length > 0 && !selectedSchool) {
+      const matched = schools.find((s) => s.id === profile.schoolId);
+      if (matched) setSelectedSchool(matched);
+    }
+  }, [schools, profile, selectedSchool]);
 
   const handleSave = async () => {
+    if (!firebaseUser) return;
     setSaving(true);
     setSuccess(false);
-    await updateUser(firebaseUser.uid, {
-      name,
-      schoolId,
-      schoolLevel,
-      grade,
-      classNumber: classNumber ? Number(classNumber) : undefined,
-    });
-    await refreshProfile();
-    setSaving(false);
-    setSuccess(true);
+    setError('');
+    try {
+      await updateUser(firebaseUser.uid, {
+        name,
+        schoolId: selectedSchool?.id ?? '',
+        schoolLevel,
+        grade,
+        classNumber: classNumber ? Number(classNumber) : undefined,
+      });
+      await refreshProfile();
+      setSuccess(true);
+    } catch {
+      setError('저장에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateSchool = async () => {
+    if (!newSchoolName.trim()) return;
+    setDialogSaving(true);
+    try {
+      const id = await createSchool({
+        name: newSchoolName.trim(),
+        level: newSchoolLevel,
+        region: newSchoolRegion.trim(),
+      });
+      const newSchool: School = {
+        id,
+        name: newSchoolName.trim(),
+        level: newSchoolLevel,
+        region: newSchoolRegion.trim(),
+      };
+      setSchools((prev) => [...prev, newSchool]);
+      setSelectedSchool(newSchool);
+      setDialogOpen(false);
+      setNewSchoolName('');
+      setNewSchoolRegion('');
+    } catch {
+      setError('학교 등록에 실패했습니다.');
+    } finally {
+      setDialogSaving(false);
+    }
   };
 
   const handleSignOut = async () => {
@@ -79,9 +137,8 @@ export default function ProfilePage() {
     <Container maxWidth="sm" sx={{ py: 3 }}>
       <Typography variant="h5" gutterBottom>프로필 설정</Typography>
 
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }}>저장되었습니다.</Alert>
-      )}
+      {success && <Alert severity="success" sx={{ mb: 2 }}>저장되었습니다.</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
@@ -97,7 +154,7 @@ export default function ProfilePage() {
         <TextField
           fullWidth
           label="이메일"
-          value={firebaseUser.email ?? ''}
+          value={firebaseUser?.email ?? ''}
           disabled
           sx={{ mb: 2 }}
         />
@@ -107,14 +164,27 @@ export default function ProfilePage() {
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
           학교 정보
         </Typography>
-        <TextField
-          fullWidth
-          label="학교명 (또는 학교 ID)"
-          value={schoolId}
-          onChange={(e) => setSchoolId(e.target.value)}
-          placeholder="예: 서울초등학교"
-          sx={{ mb: 2 }}
+
+        <Autocomplete
+          options={schools}
+          getOptionLabel={(option) => `${option.name} (${option.region || '지역 미설정'})`}
+          value={selectedSchool}
+          onChange={(_, value) => setSelectedSchool(value)}
+          loading={schoolsLoading}
+          noOptionsText="검색 결과 없음"
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="학교 검색"
+              placeholder="학교명을 입력하세요"
+            />
+          )}
+          sx={{ mb: 1 }}
         />
+        <Button size="small" onClick={() => setDialogOpen(true)} sx={{ mb: 2 }}>
+          학교가 목록에 없나요? 새로 등록
+        </Button>
+
         <TextField
           fullWidth
           select
@@ -161,6 +231,49 @@ export default function ProfilePage() {
       <Button variant="outlined" fullWidth color="error" onClick={handleSignOut}>
         로그아웃
       </Button>
+
+      {/* 새 학교 등록 Dialog */}
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>새 학교 등록</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            label="학교명"
+            value={newSchoolName}
+            onChange={(e) => setNewSchoolName(e.target.value)}
+            sx={{ mt: 1, mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            select
+            label="학교급"
+            value={newSchoolLevel}
+            onChange={(e) => setNewSchoolLevel(e.target.value as SchoolLevel)}
+            sx={{ mb: 2 }}
+          >
+            {SCHOOL_LEVELS.map((opt) => (
+              <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            fullWidth
+            label="지역"
+            value={newSchoolRegion}
+            onChange={(e) => setNewSchoolRegion(e.target.value)}
+            placeholder="예: 서울, 경기"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>취소</Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateSchool}
+            disabled={dialogSaving || !newSchoolName.trim()}
+          >
+            {dialogSaving ? '등록 중...' : '등록'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

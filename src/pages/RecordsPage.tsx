@@ -11,6 +11,7 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import { useAuth } from '@/contexts/AuthContext';
 import { getUserRecords } from '@/services/firestore';
 import { EVENT_LABELS } from '@/constants/awards';
@@ -24,32 +25,22 @@ export default function RecordsPage() {
   const { firebaseUser, profile } = useAuth();
   const [records, setRecords] = useState<JumpRecord[]>([]);
   const [tab, setTab] = useState(0);
-  const [loading, setLoading] = useState(!!firebaseUser);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (firebaseUser) {
       getUserRecords(firebaseUser.uid)
         .then(setRecords)
+        .catch(() => setError('기록을 불러오는데 실패했습니다.'))
         .finally(() => setLoading(false));
     }
   }, [firebaseUser]);
-
-  if (!firebaseUser) {
-    return (
-      <Container maxWidth="sm" sx={{ py: 3 }}>
-        <Alert severity="info">기록을 보려면 로그인해주세요.</Alert>
-        <Button variant="contained" onClick={() => navigate('/login')} sx={{ mt: 2 }}>
-          로그인
-        </Button>
-      </Container>
-    );
-  }
 
   const selectedEvent = EVENTS[tab];
   const filtered = records.filter((r) => r.eventType === selectedEvent);
   const ageGroup = profile ? getAgeGroup(profile.schoolLevel, profile.grade) : null;
 
-  // 개인 최고 기록
   const best = filtered.length > 0 ? Math.max(...filtered.map((r) => r.count)) : null;
   const bestAward = best !== null && ageGroup ? judgeAward(selectedEvent, ageGroup, best) : 'none';
 
@@ -62,6 +53,8 @@ export default function RecordsPage() {
           <Tab key={evt} label={EVENT_LABELS[evt]} />
         ))}
       </Tabs>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {/* 최고 기록 카드 */}
       {best !== null && (
@@ -82,9 +75,9 @@ export default function RecordsPage() {
 
       {/* 기록 목록 */}
       {loading ? (
-        <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-          불러오는 중...
-        </Typography>
+        <Box sx={{ textAlign: 'center', py: 6 }}>
+          <CircularProgress />
+        </Box>
       ) : filtered.length === 0 ? (
         <Box sx={{ textAlign: 'center', py: 6 }}>
           <Typography color="text.secondary" gutterBottom>

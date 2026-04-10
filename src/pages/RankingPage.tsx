@@ -9,14 +9,16 @@ import Tab from '@mui/material/Tab';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
-import { getRecordsByEvent } from '@/services/firestore';
+import Alert from '@mui/material/Alert';
+import { getRecordsByEvent, getUser } from '@/services/firestore';
 import { EVENT_LABELS } from '@/constants/awards';
-import type { JumpRecord, EventType } from '@/types';
+import type { EventType } from '@/types';
 
 const EVENTS: EventType[] = ['moah', 'alternate', 'double'];
 
 interface RankEntry {
   userId: string;
+  userName: string;
   count: number;
 }
 
@@ -24,27 +26,49 @@ export default function RankingPage() {
   const [tab, setTab] = useState(0);
   const [rankings, setRankings] = useState<RankEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const selectedEvent = EVENTS[tab];
 
   useEffect(() => {
     let cancelled = false;
-    getRecordsByEvent(selectedEvent).then((records) => {
-      if (cancelled) return;
-      // Best record per user
-      const best = new Map<string, JumpRecord>();
-      for (const r of records) {
-        const existing = best.get(r.userId);
-        if (!existing || r.count > existing.count) {
-          best.set(r.userId, r);
+    getRecordsByEvent(selectedEvent)
+      .then(async (records) => {
+        if (cancelled) return;
+        // Best record per user
+        const best = new Map<string, { userId: string; count: number }>();
+        for (const r of records) {
+          const existing = best.get(r.userId);
+          if (!existing || r.count > existing.count) {
+            best.set(r.userId, { userId: r.userId, count: r.count });
+          }
         }
-      }
-      const sorted = [...best.values()]
-        .sort((a, b) => b.count - a.count)
-        .map((r) => ({ userId: r.userId, count: r.count }));
-      setRankings(sorted);
-      setLoading(false);
-    });
+        const sorted = [...best.values()].sort((a, b) => b.count - a.count);
+
+        // Fetch user names
+        const entries: RankEntry[] = await Promise.all(
+          sorted.map(async (entry) => {
+            try {
+              const user = await getUser(entry.userId);
+              return { ...entry, userName: user?.name || entry.userId.slice(0, 8) + '...' };
+            } catch {
+              return { ...entry, userName: entry.userId.slice(0, 8) + '...' };
+            }
+          }),
+        );
+
+        if (!cancelled) {
+          setRankings(entries);
+          setLoading(false);
+          setError('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('순위를 불러오는데 실패했습니다.');
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
   }, [selectedEvent]);
 
@@ -64,6 +88,8 @@ export default function RankingPage() {
           <Tab key={evt} label={EVENT_LABELS[evt]} />
         ))}
       </Tabs>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {loading ? (
         <Box sx={{ textAlign: 'center', py: 6 }}>
@@ -93,7 +119,7 @@ export default function RankingPage() {
                       </Typography>
                     )}
                     <Typography variant="body1">
-                      {entry.userId.slice(0, 8)}...
+                      {entry.userName}
                     </Typography>
                   </Box>
                   <Typography variant="h6" sx={{ fontWeight: 700 }}>{entry.count}회</Typography>

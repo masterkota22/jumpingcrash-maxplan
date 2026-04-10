@@ -10,6 +10,7 @@ import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
 import { useNavigate } from 'react-router-dom';
 import { computeSchoolRankings, type SchoolRankEntry } from '@/services/firestore';
 import { EVENT_LABELS } from '@/constants/awards';
@@ -22,16 +23,25 @@ export default function SchoolRankingPage() {
   const [tab, setTab] = useState(0);
   const [rankings, setRankings] = useState<SchoolRankEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const selectedEvent = EVENTS[tab];
 
   useEffect(() => {
     let cancelled = false;
-    computeSchoolRankings(selectedEvent).then((data) => {
-      if (cancelled) return;
-      setRankings(data);
-      setLoading(false);
-    });
+    computeSchoolRankings(selectedEvent)
+      .then((data) => {
+        if (cancelled) return;
+        setRankings(data);
+        setLoading(false);
+        setError('');
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('학교 순위를 불러오는데 실패했습니다.');
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
   }, [selectedEvent]);
 
@@ -59,6 +69,8 @@ export default function SchoolRankingPage() {
           <Tab key={evt} label={EVENT_LABELS[evt]} />
         ))}
       </Tabs>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {loading ? (
         <Box sx={{ textAlign: 'center', py: 6 }}>

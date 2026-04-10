@@ -46,19 +46,19 @@ export default function CompetitionPage() {
               <Typography variant="body2" sx={{ mb: 1.5 }}>
                 {comp.description}
               </Typography>
-              <Stack direction="row" spacing={0.5} sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2 }}>
                 {comp.events.map((evt) => (
                   <Chip key={evt} label={evt} size="small" variant="outlined" />
                 ))}
-              </Stack>
-              <Stack direction="row" spacing={1}>
+              </Box>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 <Button variant="contained" size="small" onClick={() => navigate('/measure')}>
                   참가하기
                 </Button>
                 <Button variant="outlined" size="small" onClick={() => navigate('/ranking/school')}>
                   순위 보기
                 </Button>
-              </Stack>
+              </Box>
             </CardContent>
           </Card>
         ))}

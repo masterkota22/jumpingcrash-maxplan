@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
@@ -26,13 +25,13 @@ type Phase = 'select' | 'ready' | 'measuring' | 'done';
 const DURATION = 30;
 
 export default function MeasurePage() {
-  const navigate = useNavigate();
   const { firebaseUser, profile } = useAuth();
   const [eventType, setEventType] = useState<EventType>('moah');
   const [phase, setPhase] = useState<Phase>('select');
   const [count, setCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DURATION);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [resultOpen, setResultOpen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -75,30 +74,23 @@ export default function MeasurePage() {
   const handleSave = async () => {
     if (!firebaseUser || !profile) return;
     setSaving(true);
-    await saveRecord({
-      userId: firebaseUser.uid,
-      schoolId: profile.schoolId,
-      eventType,
-      count,
-      duration: 30,
-    });
-    setSaving(false);
-    setResultOpen(false);
-    setPhase('select');
+    setSaveError('');
+    try {
+      await saveRecord({
+        userId: firebaseUser.uid,
+        schoolId: profile.schoolId,
+        eventType,
+        count,
+        duration: 30,
+      });
+      setResultOpen(false);
+      setPhase('select');
+    } catch {
+      setSaveError('저장에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setSaving(false);
+    }
   };
-
-  if (!firebaseUser) {
-    return (
-      <Container maxWidth="sm" sx={{ py: 3 }}>
-        <Alert severity="info">
-          측정을 시작하려면 먼저 로그인해주세요.
-        </Alert>
-        <Button variant="contained" onClick={() => navigate('/login')} sx={{ mt: 2 }}>
-          로그인
-        </Button>
-      </Container>
-    );
-  }
 
   return (
     <Container maxWidth="sm" sx={{ py: 3 }}>
@@ -182,7 +174,7 @@ export default function MeasurePage() {
             {timeLeft}초
           </Typography>
 
-          <Typography variant="h1" sx={{ fontWeight: 900, fontSize: '6rem', my: 2 }}>
+          <Typography variant="h1" sx={{ fontWeight: 900, fontSize: { xs: '4rem', sm: '6rem' }, my: 2 }}>
             {count}
           </Typography>
           <Typography variant="body1" color="text.secondary">
@@ -216,6 +208,7 @@ export default function MeasurePage() {
               sx={{ bgcolor: getAwardColor(award), color: '#fff', fontWeight: 700, fontSize: '1rem', py: 2, px: 1 }}
             />
           )}
+          {saveError && <Alert severity="error" sx={{ mt: 2 }}>{saveError}</Alert>}
         </DialogContent>
         <DialogActions sx={{ flexDirection: 'column', gap: 1, px: 3, pb: 3 }}>
           <Button

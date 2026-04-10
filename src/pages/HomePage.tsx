@@ -9,6 +9,8 @@ import CardActionArea from '@mui/material/CardActionArea';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
 import TimerIcon from '@mui/icons-material/Timer';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import LeaderboardIcon from '@mui/icons-material/Leaderboard';
@@ -20,14 +22,27 @@ import type { JumpRecord } from '@/types';
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const { firebaseUser, profile } = useAuth();
+  const { firebaseUser, profile, loading: authLoading } = useAuth();
   const [recentRecords, setRecentRecords] = useState<JumpRecord[]>([]);
+  const [loading, setLoading] = useState(!!firebaseUser);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (firebaseUser) {
-      getUserRecords(firebaseUser.uid).then((recs) => setRecentRecords(recs.slice(0, 5)));
+      getUserRecords(firebaseUser.uid)
+        .then((recs) => setRecentRecords(recs.slice(0, 5)))
+        .catch(() => setError('최근 기록을 불러오는데 실패했습니다.'))
+        .finally(() => setLoading(false));
     }
   }, [firebaseUser]);
+
+  if (authLoading) {
+    return (
+      <Container maxWidth="sm" sx={{ py: 6, textAlign: 'center' }}>
+        <CircularProgress />
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="sm" sx={{ py: 3 }}>
@@ -48,26 +63,26 @@ export default function HomePage() {
       </Box>
 
       {/* Quick Actions */}
-      <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
-        <Card sx={{ flex: 1 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+        <Card sx={{ flex: '1 1 0', minWidth: 100 }}>
           <CardActionArea onClick={() => navigate('/measure')} sx={{ p: 2, textAlign: 'center' }}>
             <TimerIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
             <Typography variant="body1" sx={{ fontWeight: 600 }}>측정 시작</Typography>
           </CardActionArea>
         </Card>
-        <Card sx={{ flex: 1 }}>
+        <Card sx={{ flex: '1 1 0', minWidth: 100 }}>
           <CardActionArea onClick={() => navigate('/ranking/school')} sx={{ p: 2, textAlign: 'center' }}>
             <LeaderboardIcon color="secondary" sx={{ fontSize: 40, mb: 1 }} />
             <Typography variant="body1" sx={{ fontWeight: 600 }}>학교 순위</Typography>
           </CardActionArea>
         </Card>
-        <Card sx={{ flex: 1 }}>
+        <Card sx={{ flex: '1 1 0', minWidth: 100 }}>
           <CardActionArea onClick={() => navigate('/competition')} sx={{ p: 2, textAlign: 'center' }}>
             <EmojiEventsIcon sx={{ fontSize: 40, mb: 1, color: '#FFD700' }} />
             <Typography variant="body1" sx={{ fontWeight: 600 }}>대회</Typography>
           </CardActionArea>
         </Card>
-      </Stack>
+      </Box>
 
       {/* 종목 소개 */}
       <Typography variant="h6" sx={{ mb: 2 }}>30초 스피드 줄넘기</Typography>
@@ -86,8 +101,14 @@ export default function HomePage() {
         ))}
       </Stack>
 
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
       {/* 최근 기록 */}
-      {recentRecords.length > 0 && (
+      {loading ? (
+        <Box sx={{ textAlign: 'center', py: 4 }}>
+          <CircularProgress size={28} />
+        </Box>
+      ) : recentRecords.length > 0 && (
         <>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
             <Typography variant="h6">최근 기록</Typography>

@@ -58,12 +58,14 @@ export default function MainLayout() {
             navigate(NAV_ITEMS[newValue].path);
           }}
           showLabels
+          sx={{ '& .MuiBottomNavigationAction-label': { fontSize: { xs: '0.65rem', sm: '0.75rem' } } }}
         >
           {NAV_ITEMS.map((item) => (
             <BottomNavigationAction
               key={item.path}
               label={item.label}
               icon={item.icon}
+              sx={{ minWidth: 0, px: { xs: 0.5, sm: 1 } }}
             />
           ))}
         </BottomNavigation>
