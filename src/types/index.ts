@@ -48,3 +48,15 @@ export interface AwardCriteria {
   silver: [number, number];
   bronze: [number, number];
 }
+
+export type CompetitionStatus = 'upcoming' | 'active' | 'ended';
+
+export interface Competition {
+  id: string;
+  title: string;
+  description: string;
+  startDate: Timestamp;
+  endDate: Timestamp;
+  events: EventType[];
+  status: CompetitionStatus;
+}

@@ -14,13 +14,22 @@ import DialogActions from '@mui/material/DialogActions';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import LinearProgress from '@mui/material/LinearProgress';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import TouchAppIcon from '@mui/icons-material/TouchApp';
+import CameraswitchIcon from '@mui/icons-material/Cameraswitch';
 import { useAuth } from '@/contexts/AuthContext';
 import { saveRecord } from '@/services/firestore';
 import { EVENT_LABELS } from '@/constants/awards';
 import { judgeAward, getAgeGroup, getAwardLabel, getAwardColor } from '@/utils/awards';
+import { useCamera } from '@/hooks/useCamera';
+import { usePoseDetector } from '@/hooks/usePoseDetector';
+import { useJumpCounter } from '@/hooks/useJumpCounter';
 import type { EventType, AwardGrade } from '@/types';
 
 type Phase = 'select' | 'ready' | 'measuring' | 'done';
+type MeasureMode = 'ai' | 'manual';
 
 const DURATION = 30;
 
@@ -28,12 +37,25 @@ export default function MeasurePage() {
   const { firebaseUser, profile } = useAuth();
   const [eventType, setEventType] = useState<EventType>('moah');
   const [phase, setPhase] = useState<Phase>('select');
-  const [count, setCount] = useState(0);
+  const [manualCount, setManualCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DURATION);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [resultOpen, setResultOpen] = useState(false);
+  const [mode, setMode] = useState<MeasureMode>('ai');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // AI hooks
+  const camera = useCamera();
+  const poseDetector = usePoseDetector();
+  const jumpCounter = useJumpCounter();
+
+  const isAiMode = mode === 'ai';
+
+  // Active count depends on mode
+  const count = isAiMode ? jumpCounter.count : manualCount;
 
   const award = useMemo<AwardGrade>(() => {
     if (phase !== 'done') return 'none';
@@ -48,16 +70,98 @@ export default function MeasurePage() {
     }
   }, []);
 
+  const stopDetectionLoop = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
   const finishMeasure = useCallback(() => {
     stopTimer();
+    stopDetectionLoop();
+    if (isAiMode) {
+      camera.stop();
+    }
     setPhase('done');
     setResultOpen(true);
-  }, [stopTimer]);
+  }, [stopTimer, stopDetectionLoop, isAiMode, camera]);
 
-  const startMeasure = () => {
-    setCount(0);
+  // AI detection loop
+  const startDetectionLoop = useCallback(() => {
+    const loop = () => {
+      if (camera.videoRef.current && poseDetector.modelStatus === 'ready') {
+        const result = poseDetector.detectForVideo(
+          camera.videoRef.current,
+          performance.now(),
+        );
+        if (result) {
+          jumpCounter.processPose(result);
+
+          // Draw skeleton on canvas
+          if (canvasRef.current && camera.videoRef.current) {
+            const ctx = canvasRef.current.getContext('2d');
+            const video = camera.videoRef.current;
+            if (ctx) {
+              canvasRef.current.width = video.videoWidth;
+              canvasRef.current.height = video.videoHeight;
+              ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+              if (result.landmarks && result.landmarks.length > 0) {
+                const landmarks = result.landmarks[0];
+                const w = canvasRef.current.width;
+                const h = canvasRef.current.height;
+
+                // Draw key points (hips, knees, ankles)
+                const keyIndices = [23, 24, 25, 26, 27, 28];
+                ctx.fillStyle = '#00FF00';
+                for (const idx of keyIndices) {
+                  if (landmarks[idx]) {
+                    ctx.beginPath();
+                    ctx.arc(landmarks[idx].x * w, landmarks[idx].y * h, 6, 0, 2 * Math.PI);
+                    ctx.fill();
+                  }
+                }
+
+                // Draw connections (hip-knee, knee-ankle)
+                ctx.strokeStyle = '#00FF00';
+                ctx.lineWidth = 3;
+                const connections = [
+                  [23, 25], [25, 27], // left leg
+                  [24, 26], [26, 28], // right leg
+                  [23, 24], // hip
+                ];
+                for (const [a, b] of connections) {
+                  if (landmarks[a] && landmarks[b]) {
+                    ctx.beginPath();
+                    ctx.moveTo(landmarks[a].x * w, landmarks[a].y * h);
+                    ctx.lineTo(landmarks[b].x * w, landmarks[b].y * h);
+                    ctx.stroke();
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+  }, [camera.videoRef, poseDetector, jumpCounter]);
+
+  const startMeasure = useCallback(() => {
+    if (isAiMode) {
+      jumpCounter.reset();
+    } else {
+      setManualCount(0);
+    }
     setTimeLeft(DURATION);
     setPhase('measuring');
+
+    if (isAiMode) {
+      startDetectionLoop();
+    }
+
     const startTime = Date.now();
     timerRef.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -67,9 +171,20 @@ export default function MeasurePage() {
         finishMeasure();
       }
     }, 1000);
-  };
+  }, [isAiMode, jumpCounter, startDetectionLoop, finishMeasure]);
 
-  useEffect(() => () => stopTimer(), [stopTimer]);
+  // Start camera and load model when AI mode enters ready phase
+  const prepareAiMode = useCallback(async () => {
+    await camera.start();
+    if (poseDetector.modelStatus === 'idle') {
+      await poseDetector.load();
+    }
+  }, [camera, poseDetector]);
+
+  useEffect(() => () => {
+    stopTimer();
+    stopDetectionLoop();
+  }, [stopTimer, stopDetectionLoop]);
 
   const handleSave = async () => {
     if (!firebaseUser || !profile) return;
@@ -92,6 +207,16 @@ export default function MeasurePage() {
     }
   };
 
+  const handleBackToSelect = () => {
+    stopTimer();
+    stopDetectionLoop();
+    if (isAiMode) {
+      camera.stop();
+      poseDetector.close();
+    }
+    setPhase('select');
+  };
+
   return (
     <Container maxWidth="sm" sx={{ py: 3 }}>
       {/* 종목 선택 */}
@@ -110,21 +235,48 @@ export default function MeasurePage() {
             ))}
           </ToggleButtonGroup>
 
+          {/* 측정 모드 선택 */}
+          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+            측정 방식
+          </Typography>
+          <ToggleButtonGroup
+            value={mode}
+            exclusive
+            onChange={(_, v) => v && setMode(v)}
+            fullWidth
+            sx={{ mb: 3 }}
+          >
+            <ToggleButton value="ai">
+              <CameraAltIcon sx={{ mr: 0.5 }} /> AI 카메라
+            </ToggleButton>
+            <ToggleButton value="manual">
+              <TouchAppIcon sx={{ mr: 0.5 }} /> 수동 카운트
+            </ToggleButton>
+          </ToggleButtonGroup>
+
           <Card sx={{ mb: 3, textAlign: 'center' }}>
             <CardContent>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 30초 동안 줄넘기를 뛰고 횟수를 카운트합니다.
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                화면을 탭하여 횟수를 수동으로 카운트하세요.
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                (카메라 AI 자동 측정은 추후 업데이트 예정)
-              </Typography>
+              {isAiMode ? (
+                <Typography variant="body2" color="text.secondary">
+                  카메라로 전신이 보이도록 촬영하면 AI가 자동으로 점프를 감지합니다.
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  화면을 탭하여 횟수를 수동으로 카운트하세요.
+                </Typography>
+              )}
             </CardContent>
           </Card>
 
-          <Button variant="contained" fullWidth size="large" onClick={() => setPhase('ready')}>
+          <Button
+            variant="contained"
+            fullWidth
+            size="large"
+            onClick={() => setPhase('ready')}
+          >
             측정 준비
           </Button>
         </>
@@ -132,16 +284,120 @@ export default function MeasurePage() {
 
       {/* 준비 */}
       {phase === 'ready' && (
-        <Box sx={{ textAlign: 'center', py: 6 }}>
+        <Box sx={{ textAlign: 'center', py: 4 }}>
           <Typography variant="h6" color="text.secondary" gutterBottom>
-            {EVENT_LABELS[eventType]}
+            {EVENT_LABELS[eventType]} ({isAiMode ? 'AI 카메라' : '수동'})
           </Typography>
-          <Typography variant="h3" sx={{ mb: 4 }}>준비되셨나요?</Typography>
-          <Button variant="contained" size="large" onClick={startMeasure} sx={{ px: 6, py: 2 }}>
-            시작!
-          </Button>
+
+          {isAiMode && (
+            <Box sx={{ mb: 3 }}>
+              {/* Camera preview */}
+              {camera.status === 'idle' && (
+                <Button
+                  variant="outlined"
+                  onClick={prepareAiMode}
+                  sx={{ mb: 2 }}
+                >
+                  카메라 시작
+                </Button>
+              )}
+
+              {camera.status === 'starting' && (
+                <Box sx={{ py: 3 }}>
+                  <CircularProgress size={32} />
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    카메라 시작 중...
+                  </Typography>
+                </Box>
+              )}
+
+              {camera.error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {camera.error}
+                </Alert>
+              )}
+
+              {camera.status === 'active' && (
+                <Box sx={{ position: 'relative', mb: 2 }}>
+                  <video
+                    ref={camera.videoRef}
+                    style={{
+                      width: '100%',
+                      maxHeight: 360,
+                      borderRadius: 8,
+                      transform: camera.facing === 'user' ? 'scaleX(-1)' : 'none',
+                      objectFit: 'cover',
+                    }}
+                    playsInline
+                    muted
+                  />
+                  <IconButton
+                    onClick={() => {
+                      camera.toggleFacing();
+                      camera.stop();
+                      setTimeout(() => camera.start(), 300);
+                    }}
+                    sx={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      bgcolor: 'rgba(0,0,0,0.5)',
+                      color: '#fff',
+                      '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
+                    }}
+                  >
+                    <CameraswitchIcon />
+                  </IconButton>
+                </Box>
+              )}
+
+              {/* Model loading status */}
+              {poseDetector.modelStatus === 'loading' && (
+                <Box sx={{ py: 2 }}>
+                  <CircularProgress size={24} />
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    AI 모델 로딩 중...
+                  </Typography>
+                  <LinearProgress sx={{ mt: 1 }} />
+                </Box>
+              )}
+
+              {poseDetector.modelError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {poseDetector.modelError}
+                </Alert>
+              )}
+
+              {poseDetector.modelStatus === 'ready' && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  AI 모델 준비 완료
+                </Alert>
+              )}
+            </Box>
+          )}
+
+          {(!isAiMode || (camera.status === 'active' && poseDetector.modelStatus === 'ready')) ? (
+            <>
+              <Typography variant="h3" sx={{ mb: 4 }}>준비되셨나요?</Typography>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={startMeasure}
+                sx={{ px: 6, py: 2 }}
+              >
+                시작!
+              </Button>
+            </>
+          ) : !isAiMode ? null : (
+            camera.status === 'idle' && !camera.error ? null : (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                카메라와 AI 모델이 준비되면 시작할 수 있습니다.
+              </Typography>
+            )
+          )}
+
           <Box sx={{ mt: 2 }}>
-            <Button variant="text" onClick={() => setPhase('select')}>뒤로</Button>
+            <Button variant="text" onClick={handleBackToSelect}>뒤로</Button>
           </Box>
         </Box>
       )}
@@ -149,17 +405,17 @@ export default function MeasurePage() {
       {/* 측정 중 */}
       {phase === 'measuring' && (
         <Box
-          onClick={() => setCount((c) => c + 1)}
+          onClick={!isAiMode ? () => setManualCount((c) => c + 1) : undefined}
           sx={{
             textAlign: 'center',
-            py: 4,
-            cursor: 'pointer',
+            py: isAiMode ? 2 : 4,
+            cursor: !isAiMode ? 'pointer' : 'default',
             userSelect: 'none',
             WebkitTapHighlightColor: 'transparent',
           }}
         >
           <Typography variant="h6" color="text.secondary">
-            {EVENT_LABELS[eventType]}
+            {EVENT_LABELS[eventType]} ({isAiMode ? 'AI' : '수동'})
           </Typography>
 
           <Box sx={{ my: 2 }}>
@@ -174,12 +430,80 @@ export default function MeasurePage() {
             {timeLeft}초
           </Typography>
 
-          <Typography variant="h1" sx={{ fontWeight: 900, fontSize: { xs: '4rem', sm: '6rem' }, my: 2 }}>
+          {/* AI camera view during measurement */}
+          {isAiMode && camera.videoRef.current && (
+            <Box sx={{ position: 'relative', mb: 2 }}>
+              <video
+                ref={camera.videoRef}
+                style={{
+                  width: '100%',
+                  maxHeight: 280,
+                  borderRadius: 8,
+                  transform: camera.facing === 'user' ? 'scaleX(-1)' : 'none',
+                  objectFit: 'cover',
+                }}
+                playsInline
+                muted
+              />
+              <canvas
+                ref={canvasRef}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  transform: camera.facing === 'user' ? 'scaleX(-1)' : 'none',
+                  pointerEvents: 'none',
+                }}
+              />
+              {/* Jump state indicator */}
+              <Chip
+                label={
+                  jumpCounter.state === 'jumping'
+                    ? '점프!'
+                    : jumpCounter.state === 'standing'
+                      ? '착지'
+                      : jumpCounter.state === 'squatting'
+                        ? '구부림'
+                        : '대기'
+                }
+                size="small"
+                color={jumpCounter.state === 'jumping' ? 'success' : 'default'}
+                sx={{
+                  position: 'absolute',
+                  bottom: 8,
+                  left: 8,
+                  fontWeight: 700,
+                }}
+              />
+              {/* Confidence indicator */}
+              <Chip
+                label={`감지: ${Math.round(jumpCounter.confidence * 100)}%`}
+                size="small"
+                sx={{
+                  position: 'absolute',
+                  bottom: 8,
+                  right: 8,
+                  bgcolor: 'rgba(0,0,0,0.5)',
+                  color: '#fff',
+                }}
+              />
+            </Box>
+          )}
+
+          <Typography
+            variant="h1"
+            sx={{ fontWeight: 900, fontSize: { xs: '4rem', sm: '6rem' }, my: 2 }}
+          >
             {count}
           </Typography>
-          <Typography variant="body1" color="text.secondary">
-            화면을 탭하여 카운트
-          </Typography>
+
+          {!isAiMode && (
+            <Typography variant="body1" color="text.secondary">
+              화면을 탭하여 카운트
+            </Typography>
+          )}
 
           <Button
             variant="outlined"
@@ -197,7 +521,7 @@ export default function MeasurePage() {
         <DialogTitle sx={{ textAlign: 'center' }}>측정 완료!</DialogTitle>
         <DialogContent sx={{ textAlign: 'center' }}>
           <Typography variant="body1" color="text.secondary" gutterBottom>
-            {EVENT_LABELS[eventType]} | 30초
+            {EVENT_LABELS[eventType]} | 30초 | {isAiMode ? 'AI 측정' : '수동 카운트'}
           </Typography>
           <Typography variant="h2" sx={{ fontWeight: 900, my: 2 }}>
             {count}회
