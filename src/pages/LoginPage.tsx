@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
@@ -9,17 +9,24 @@ import Alert from '@mui/material/Alert';
 import Paper from '@mui/material/Paper';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import Divider from '@mui/material/Divider';
+import GoogleIcon from '@mui/icons-material/Google';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { signIn, signUp } = useAuth();
+  const { firebaseUser, loading: authLoading, signIn, signUp, signInWithGoogle } = useAuth();
   const [tab, setTab] = useState(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Already logged in → redirect to home
+  if (!authLoading && firebaseUser) {
+    return <Navigate to="/" replace />;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +62,24 @@ export default function LoginPage() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+      navigate('/');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '오류가 발생했습니다.';
+      if (msg.includes('popup-closed-by-user')) {
+        // User closed the popup, not an error
+      } else {
+        setError('Google 로그인에 실패했습니다. 다시 시도해주세요.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Container maxWidth="xs" sx={{ py: 6 }}>
       <Box sx={{ textAlign: 'center', mb: 4 }}>
@@ -67,6 +92,23 @@ export default function LoginPage() {
       </Box>
 
       <Paper elevation={2} sx={{ p: 3 }}>
+        {/* Google 로그인 */}
+        <Button
+          variant="outlined"
+          fullWidth
+          size="large"
+          startIcon={<GoogleIcon />}
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          sx={{ mb: 2 }}
+        >
+          Google로 시작하기
+        </Button>
+
+        <Divider sx={{ my: 2 }}>
+          <Typography variant="body2" color="text.secondary">또는</Typography>
+        </Divider>
+
         <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth" sx={{ mb: 3 }}>
           <Tab label="로그인" />
           <Tab label="회원가입" />

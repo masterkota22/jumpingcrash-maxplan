@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
@@ -27,8 +26,9 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Derive tab from current URL (fixes back-navigation desync)
   const currentTab = NAV_ITEMS.findIndex((item) => item.path === location.pathname);
-  const [tab, setTab] = useState(currentTab >= 0 ? currentTab : 0);
+  const tabValue = currentTab >= 0 ? currentTab : false;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -52,9 +52,8 @@ export default function MainLayout() {
         elevation={3}
       >
         <BottomNavigation
-          value={tab}
+          value={tabValue}
           onChange={(_, newValue) => {
-            setTab(newValue);
             navigate(NAV_ITEMS[newValue].path);
           }}
           showLabels
