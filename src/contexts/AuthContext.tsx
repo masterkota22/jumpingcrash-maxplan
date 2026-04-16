@@ -3,6 +3,8 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut as firebaseSignOut,
   type User as FirebaseUser,
 } from 'firebase/auth';
@@ -19,6 +21,7 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -72,6 +75,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await setDoc(doc(db, 'users', cred.user.uid), newUser);
   };
 
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    const cred = await signInWithPopup(auth, provider);
+    // Create user profile if first time
+    const existingProfile = await fetchProfile(cred.user.uid);
+    if (!existingProfile) {
+      const newUser: User = {
+        uid: cred.user.uid,
+        name: cred.user.displayName || '사용자',
+        schoolId: '',
+        schoolLevel: 'elementary',
+        grade: 1,
+      };
+      await setDoc(doc(db, 'users', cred.user.uid), newUser);
+    }
+  };
+
   const signOut = async () => {
     await firebaseSignOut(auth);
   };
@@ -84,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, signIn, signUp, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ ...state, signIn, signUp, signInWithGoogle, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

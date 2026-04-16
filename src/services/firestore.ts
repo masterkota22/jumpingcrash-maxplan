@@ -14,7 +14,7 @@ import {
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import type { User, School, JumpRecord, EventType } from '@/types';
+import type { User, School, JumpRecord, EventType, Competition } from '@/types';
 
 // ── Users ──
 
@@ -140,6 +140,23 @@ export async function computeSchoolRankings(
   }
 
   return rankings.sort((a, b) => b.top3Average - a.top3Average);
+}
+
+// ── Competitions ──
+
+export async function getCompetitions(): Promise<Competition[]> {
+  const q = query(
+    collection(db, 'competitions'),
+    orderBy('startDate', 'desc'),
+    limit(20),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Competition));
+}
+
+export async function getCompetition(id: string): Promise<Competition | null> {
+  const snap = await getDoc(doc(db, 'competitions', id));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Competition) : null;
 }
 
 // ── Set user doc (used by profile) ──

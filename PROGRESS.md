@@ -51,11 +51,34 @@
 - react-hooks/refs: 렌더 중 ref 접근 → state 기반 동기화로 변경
 - react-refresh/only-export-components: eslint-disable 주석 추가
 
+## Phase 4: AI 카메라 측정 + 시스템 확장 (완료)
+
+### MediaPipe AI 줄넘기 측정
+- `@mediapipe/tasks-vision` 패키지 통합
+- **useCamera 훅** (`src/hooks/useCamera.ts`): WebRTC getUserMedia 래핑, 전/후면 카메라 전환, 권한 에러 처리
+- **usePoseDetector 훅** (`src/hooks/usePoseDetector.ts`): MediaPipe PoseLandmarker Lite 모델 로딩 (CDN), VIDEO 모드 실시간 감지
+- **useJumpCounter 훅** (`src/hooks/useJumpCounter.ts`): 골반/무릎/발목 Y좌표 기반 점프 감지 알고리즘, kneeAngle 정규화, 상태 전환 카운트, 300ms 최소 간격
+- **MeasurePage 통합**: AI 카메라 모드 / 수동 카운트 모드 선택, 카메라 미리보기 + 포즈 skeleton 시각화 (canvas 오버레이), 실시간 점프 상태 & 감지 신뢰도 표시
+
+### Firestore 보안 규칙
+- `firestore.rules` 생성 (users 본인 쓰기, schools 인증 생성, records 본인 생성, competitions 읽기 전용)
+
+### 대회 시스템 (Firestore 연동)
+- `Competition` 타입 추가 (`src/types/index.ts`)
+- `getCompetitions()`, `getCompetition()` Firestore 서비스 함수 추가
+- CompetitionPage: 하드코딩 → Firestore 실시간 로드, 빈 상태 UI, 대회 상태별 UI 분기
+
+### PWA 아이콘
+- `public/icons/icon-192x192.png`, `icon-512x512.png` placeholder 생성
+
 ## 빌드/린트 상태
 - `npm run build` ✅ 통과
 - `npm run lint` ✅ 통과
 
 ## 아직 안 된 것
-- `public/icons/icon-192x192.png`, `icon-512x512.png` placeholder 이미지 미생성
-- `.env` 파일 (실제 Firebase 키 입력 필요)
-- 카메라 AI 측정 기능 (Phase 2 이후)
+- `.env` 파일 (실제 Firebase 키 입력 필요 - 사용자가 Firebase 프로젝트 생성 후 설정)
+- Firestore 보안 규칙 배포 (Firebase CLI로 `firebase deploy --only firestore:rules`)
+- 카메라 AI 측정 실기기 튜닝 (점프 감지 임계값 조정, 다양한 환경 테스트 필요)
+- 학교 데이터 DB 구축 (전국 학교 목록)
+- 사운드 시스템 (카운트 효과음, 타이머 안내음)
+- 대회 관리자 기능 (Firebase 콘솔에서만 가능)
