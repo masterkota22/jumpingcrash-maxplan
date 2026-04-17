@@ -112,33 +112,65 @@ export default function MeasurePage() {
                 const landmarks = result.landmarks[0];
                 const w = canvasRef.current.width;
                 const h = canvasRef.current.height;
+                const MIN_VIS = 0.5;
 
-                // Draw key points (hips, knees, ankles)
-                const keyIndices = [23, 24, 25, 26, 27, 28];
-                ctx.fillStyle = '#00FF00';
-                for (const idx of keyIndices) {
-                  if (landmarks[idx]) {
-                    ctx.beginPath();
-                    ctx.arc(landmarks[idx].x * w, landmarks[idx].y * h, 6, 0, 2 * Math.PI);
-                    ctx.fill();
-                  }
-                }
-
-                // Draw connections (hip-knee, knee-ankle)
-                ctx.strokeStyle = '#00FF00';
-                ctx.lineWidth = 3;
-                const connections = [
-                  [23, 25], [25, 27], // left leg
-                  [24, 26], [26, 28], // right leg
-                  [23, 24], // hip
+                // Full-body skeleton connections (MediaPipe Pose standard)
+                const faceConns: Array<[number, number]> = [
+                  [0, 1], [1, 2], [2, 3], [3, 7],
+                  [0, 4], [4, 5], [5, 6], [6, 8],
+                  [9, 10],
                 ];
-                for (const [a, b] of connections) {
-                  if (landmarks[a] && landmarks[b]) {
+                const torsoConns: Array<[number, number]> = [
+                  [11, 12], [11, 23], [12, 24], [23, 24],
+                ];
+                const armConns: Array<[number, number]> = [
+                  [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
+                  [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20],
+                ];
+                const legConns: Array<[number, number]> = [
+                  [23, 25], [25, 27], [27, 29], [27, 31], [29, 31],
+                  [24, 26], [26, 28], [28, 30], [28, 32], [30, 32],
+                ];
+
+                const drawConns = (
+                  conns: Array<[number, number]>,
+                  color: string,
+                  width: number,
+                ) => {
+                  ctx.strokeStyle = color;
+                  ctx.lineWidth = width;
+                  for (const [a, b] of conns) {
+                    const la = landmarks[a];
+                    const lb = landmarks[b];
+                    if (!la || !lb) continue;
+                    if ((la.visibility ?? 0) < MIN_VIS) continue;
+                    if ((lb.visibility ?? 0) < MIN_VIS) continue;
                     ctx.beginPath();
-                    ctx.moveTo(landmarks[a].x * w, landmarks[a].y * h);
-                    ctx.lineTo(landmarks[b].x * w, landmarks[b].y * h);
+                    ctx.moveTo(la.x * w, la.y * h);
+                    ctx.lineTo(lb.x * w, lb.y * h);
                     ctx.stroke();
                   }
+                };
+
+                drawConns(faceConns, '#40C4FF', 2);   // face - light blue
+                drawConns(torsoConns, '#FFFFFF', 3);  // torso - white
+                drawConns(armConns, '#FFC400', 3);    // arms - amber
+                drawConns(legConns, '#00E676', 3);    // legs - green
+
+                // Draw all keypoints (only if visible enough)
+                for (let i = 0; i < landmarks.length; i++) {
+                  const lm = landmarks[i];
+                  if (!lm) continue;
+                  if ((lm.visibility ?? 0) < MIN_VIS) continue;
+                  // Color-code by body part
+                  let color = '#FFFFFF';
+                  if (i <= 10) color = '#40C4FF';             // face
+                  else if (i <= 22) color = '#FFC400';        // arms
+                  else color = '#00E676';                      // legs
+                  ctx.fillStyle = color;
+                  ctx.beginPath();
+                  ctx.arc(lm.x * w, lm.y * h, 4, 0, 2 * Math.PI);
+                  ctx.fill();
                 }
               }
             }
