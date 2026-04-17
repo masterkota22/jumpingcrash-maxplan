@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jumpingcrash-v1';
+const CACHE_NAME = 'jumpingcrash-v2';
 const STATIC_ASSETS = ['/', '/index.html'];
 
 self.addEventListener('install', (event) => {
@@ -20,7 +20,24 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const { request } = event;
+
+  // Skip cross-origin requests (Google OAuth, CDN, APIs, etc.)
+  if (!request.url.startsWith(self.location.origin)) return;
+
+  // Skip non-GET requests
+  if (request.method !== 'GET') return;
+
+  // For navigation requests (HTML pages), use network-first with fallback to cache
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // For static assets, use cache-first
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    caches.match(request).then((cached) => cached || fetch(request))
   );
 });
