@@ -4,6 +4,7 @@ import {
   FilesetResolver,
   type PoseLandmarkerResult,
 } from '@mediapipe/tasks-vision';
+import { getCachedModelBuffer } from '@/services/modelCache';
 
 export type ModelStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -36,9 +37,11 @@ export function usePoseDetector(): UsePoseDetectorReturn {
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm',
       );
 
+      const modelAssetBuffer = await getCachedModelBuffer(MODEL_URL);
+
       const landmarker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath: MODEL_URL,
+          modelAssetBuffer,
           delegate: 'GPU',
         },
         runningMode: 'VIDEO',
