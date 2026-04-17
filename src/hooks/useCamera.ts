@@ -4,7 +4,7 @@ export type CameraFacing = 'user' | 'environment';
 export type CameraStatus = 'idle' | 'starting' | 'active' | 'error';
 
 interface UseCameraReturn {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  stream: MediaStream | null;
   status: CameraStatus;
   error: string;
   facing: CameraFacing;
@@ -14,20 +14,20 @@ interface UseCameraReturn {
 }
 
 export function useCamera(): UseCameraReturn {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const [status, setStatus] = useState<CameraStatus>('idle');
   const [error, setError] = useState('');
   const [facing, setFacing] = useState<CameraFacing>('user');
+
+  const streamRef = useRef<MediaStream | null>(null);
+  const facingRef = useRef<CameraFacing>('user');
 
   const stop = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    setStream(null);
     setStatus('idle');
   }, []);
 
@@ -35,28 +35,23 @@ export function useCamera(): UseCameraReturn {
     setStatus('starting');
     setError('');
 
-    // Stop any existing stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: facing,
+          facingMode: facingRef.current,
           width: { ideal: 640 },
           height: { ideal: 480 },
         },
         audio: false,
       });
 
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
+      streamRef.current = mediaStream;
+      setStream(mediaStream);
       setStatus('active');
     } catch (err) {
       const message =
@@ -67,21 +62,28 @@ export function useCamera(): UseCameraReturn {
             : '카메라를 시작할 수 없습니다.';
       setError(message);
       setStatus('error');
+      setStream(null);
     }
-  }, [facing]);
+  }, []);
 
   const toggleFacing = useCallback(() => {
-    setFacing((prev) => (prev === 'user' ? 'environment' : 'user'));
-  }, []);
+    const next = facingRef.current === 'user' ? 'environment' : 'user';
+    facingRef.current = next;
+    setFacing(next);
+    if (streamRef.current) {
+      start();
+    }
+  }, [start]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
       }
     };
   }, []);
 
-  return { videoRef, status, error, facing, start, stop, toggleFacing };
+  return { stream, status, error, facing, start, stop, toggleFacing };
 }

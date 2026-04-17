@@ -46,6 +46,7 @@ export default function MeasurePage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rafRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // AI hooks
   const camera = useCamera();
@@ -90,18 +91,18 @@ export default function MeasurePage() {
   // AI detection loop
   const startDetectionLoop = useCallback(() => {
     const loop = () => {
-      if (camera.videoRef.current && poseDetector.modelStatus === 'ready') {
+      if (videoRef.current && poseDetector.modelStatus === 'ready') {
         const result = poseDetector.detectForVideo(
-          camera.videoRef.current,
+          videoRef.current,
           performance.now(),
         );
         if (result) {
           jumpCounter.processPose(result);
 
           // Draw skeleton on canvas
-          if (canvasRef.current && camera.videoRef.current) {
+          if (canvasRef.current && videoRef.current) {
             const ctx = canvasRef.current.getContext('2d');
-            const video = camera.videoRef.current;
+            const video = videoRef.current;
             if (ctx) {
               canvasRef.current.width = video.videoWidth;
               canvasRef.current.height = video.videoHeight;
@@ -147,7 +148,7 @@ export default function MeasurePage() {
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
-  }, [camera.videoRef, poseDetector, jumpCounter]);
+  }, [poseDetector, jumpCounter]);
 
   const startMeasure = useCallback(() => {
     if (isAiMode) {
@@ -185,6 +186,23 @@ export default function MeasurePage() {
     stopTimer();
     stopDetectionLoop();
   }, [stopTimer, stopDetectionLoop]);
+
+  // Bind camera stream to the currently-mounted video element.
+  // Re-runs on phase transitions (ready → measuring) because the video
+  // element is remounted in a different container.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (camera.stream) {
+      v.srcObject = camera.stream;
+      v.play().catch(() => {});
+    } else {
+      v.srcObject = null;
+    }
+    return () => {
+      if (v) v.srcObject = null;
+    };
+  }, [camera.stream, phase]);
 
   const handleSave = async () => {
     if (!firebaseUser || !profile) return;
@@ -320,7 +338,7 @@ export default function MeasurePage() {
               {camera.status === 'active' && (
                 <Box sx={{ position: 'relative', mb: 2 }}>
                   <video
-                    ref={camera.videoRef}
+                    ref={videoRef}
                     style={{
                       width: '100%',
                       maxHeight: 360,
@@ -332,11 +350,7 @@ export default function MeasurePage() {
                     muted
                   />
                   <IconButton
-                    onClick={() => {
-                      camera.toggleFacing();
-                      camera.stop();
-                      setTimeout(() => camera.start(), 300);
-                    }}
+                    onClick={() => camera.toggleFacing()}
                     sx={{
                       position: 'absolute',
                       top: 8,
@@ -431,10 +445,10 @@ export default function MeasurePage() {
           </Typography>
 
           {/* AI camera view during measurement */}
-          {isAiMode && camera.videoRef.current && (
+          {isAiMode && camera.stream && (
             <Box sx={{ position: 'relative', mb: 2 }}>
               <video
-                ref={camera.videoRef}
+                ref={videoRef}
                 style={{
                   width: '100%',
                   maxHeight: 280,
