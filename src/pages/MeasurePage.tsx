@@ -19,6 +19,8 @@ import IconButton from '@mui/material/IconButton';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import TouchAppIcon from '@mui/icons-material/TouchApp';
 import CameraswitchIcon from '@mui/icons-material/Cameraswitch';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import { useAuth } from '@/contexts/AuthContext';
 import { saveRecord } from '@/services/firestore';
 import { EVENT_LABELS } from '@/constants/awards';
@@ -26,6 +28,7 @@ import { judgeAward, getAgeGroup, getAwardLabel, getAwardColor } from '@/utils/a
 import { useCamera } from '@/hooks/useCamera';
 import { usePoseDetector } from '@/hooks/usePoseDetector';
 import { useJumpCounter } from '@/hooks/useJumpCounter';
+import { useSound } from '@/hooks/useSound';
 import type { EventType, AwardGrade } from '@/types';
 
 type Phase = 'select' | 'ready' | 'measuring' | 'done';
@@ -43,14 +46,18 @@ export default function MeasurePage() {
   const [saveError, setSaveError] = useState('');
   const [resultOpen, setResultOpen] = useState(false);
   const [mode, setMode] = useState<MeasureMode>('ai');
+  const [countdown, setCountdown] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rafRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const prevCountRef = useRef(0);
 
   // AI hooks
   const camera = useCamera();
   const poseDetector = usePoseDetector();
   const jumpCounter = useJumpCounter();
+  const sound = useSound();
 
   const isAiMode = mode === 'ai';
 
@@ -70,6 +77,14 @@ export default function MeasurePage() {
     }
   }, []);
 
+  const stopCountdown = useCallback(() => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    setCountdown(null);
+  }, []);
+
   const stopDetectionLoop = useCallback(() => {
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
@@ -83,9 +98,10 @@ export default function MeasurePage() {
     if (isAiMode) {
       camera.stop();
     }
+    sound.playEnd();
     setPhase('done');
     setResultOpen(true);
-  }, [stopTimer, stopDetectionLoop, isAiMode, camera]);
+  }, [stopTimer, stopDetectionLoop, isAiMode, camera, sound]);
 
   // AI detection loop
   const startDetectionLoop = useCallback(() => {
@@ -149,14 +165,16 @@ export default function MeasurePage() {
     rafRef.current = requestAnimationFrame(loop);
   }, [camera.videoRef, poseDetector, jumpCounter]);
 
-  const startMeasure = useCallback(() => {
+  const beginMeasurement = useCallback(() => {
     if (isAiMode) {
       jumpCounter.reset();
     } else {
       setManualCount(0);
     }
+    prevCountRef.current = 0;
     setTimeLeft(DURATION);
     setPhase('measuring');
+    sound.playStart();
 
     if (isAiMode) {
       startDetectionLoop();
@@ -167,11 +185,36 @@ export default function MeasurePage() {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const remaining = Math.max(0, DURATION - elapsed);
       setTimeLeft(remaining);
+      if (remaining > 0 && remaining <= 10) {
+        sound.playTick();
+      }
       if (remaining <= 0) {
         finishMeasure();
       }
     }, 1000);
-  }, [isAiMode, jumpCounter, startDetectionLoop, finishMeasure]);
+  }, [isAiMode, jumpCounter, startDetectionLoop, finishMeasure, sound]);
+
+  const startMeasure = useCallback(() => {
+    stopCountdown();
+    setCountdown(3);
+    sound.playCountdown(3);
+    const tickStart = Date.now();
+    countdownTimerRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - tickStart) / 1000);
+      const next = 3 - elapsed;
+      if (next <= 0) {
+        if (countdownTimerRef.current) {
+          clearInterval(countdownTimerRef.current);
+          countdownTimerRef.current = null;
+        }
+        setCountdown(null);
+        beginMeasurement();
+      } else {
+        setCountdown(next);
+        sound.playCountdown(next as 1 | 2 | 3);
+      }
+    }, 1000);
+  }, [beginMeasurement, sound, stopCountdown]);
 
   // Start camera and load model when AI mode enters ready phase
   const prepareAiMode = useCallback(async () => {
@@ -184,7 +227,20 @@ export default function MeasurePage() {
   useEffect(() => () => {
     stopTimer();
     stopDetectionLoop();
-  }, [stopTimer, stopDetectionLoop]);
+    stopCountdown();
+  }, [stopTimer, stopDetectionLoop, stopCountdown]);
+
+  // Play count beep on each jump during measurement
+  useEffect(() => {
+    if (phase !== 'measuring') {
+      prevCountRef.current = count;
+      return;
+    }
+    if (count > prevCountRef.current) {
+      sound.playCount();
+    }
+    prevCountRef.current = count;
+  }, [count, phase, sound]);
 
   const handleSave = async () => {
     if (!firebaseUser || !profile) return;
@@ -210,6 +266,7 @@ export default function MeasurePage() {
   const handleBackToSelect = () => {
     stopTimer();
     stopDetectionLoop();
+    stopCountdown();
     if (isAiMode) {
       camera.stop();
       poseDetector.close();
@@ -219,6 +276,15 @@ export default function MeasurePage() {
 
   return (
     <Container maxWidth="sm" sx={{ py: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+        <IconButton
+          onClick={sound.toggleMuted}
+          aria-label={sound.muted ? '소리 켜기' : '소리 끄기'}
+          size="small"
+        >
+          {sound.muted ? <VolumeOffIcon /> : <VolumeUpIcon />}
+        </IconButton>
+      </Box>
       {/* 종목 선택 */}
       {phase === 'select' && (
         <>
@@ -377,17 +443,32 @@ export default function MeasurePage() {
           )}
 
           {(!isAiMode || (camera.status === 'active' && poseDetector.modelStatus === 'ready')) ? (
-            <>
-              <Typography variant="h3" sx={{ mb: 4 }}>준비되셨나요?</Typography>
-              <Button
-                variant="contained"
-                size="large"
-                onClick={startMeasure}
-                sx={{ px: 6, py: 2 }}
-              >
-                시작!
-              </Button>
-            </>
+            countdown !== null ? (
+              <Box sx={{ py: 4 }}>
+                <Typography
+                  variant="h1"
+                  color="primary"
+                  sx={{ fontWeight: 900, fontSize: { xs: '6rem', sm: '8rem' } }}
+                >
+                  {countdown}
+                </Typography>
+                <Typography variant="body1" color="text.secondary">
+                  곧 시작합니다!
+                </Typography>
+              </Box>
+            ) : (
+              <>
+                <Typography variant="h3" sx={{ mb: 4 }}>준비되셨나요?</Typography>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={startMeasure}
+                  sx={{ px: 6, py: 2 }}
+                >
+                  시작!
+                </Button>
+              </>
+            )
           ) : !isAiMode ? null : (
             camera.status === 'idle' && !camera.error ? null : (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
